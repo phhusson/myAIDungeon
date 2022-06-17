@@ -12,64 +12,51 @@ import irc.strings
 from irc.client import ip_numstr_to_quad, ip_quad_to_numstr
 from random import randrange, shuffle
 
+import unicodedata
+
 api_url = "https://api.textsynth.com"
 # read from environment variable TEXTSYNTH_API_SECRET_KEY
 api_key = os.environ["TEXTSYNTH_API_SECRET_KEY"]
+openai_api_key = os.environ["OPENAI_API_SECRET_KEY"]
 # engine to use
-api_engine = "gptneox_20B"
+api_engine = "boris_6B"
 
-def textsynth_completion(prompt, max_tokens = 1, n = 1, stop = []):
-    bias = {
-            "5658": -100, # you
-            "1394": -100, # You
-    }
-    response = requests.post(api_url + "/v1/engines/" + api_engine + "/completions", headers = { "Authorization": "Bearer " + api_key }, json = { "prompt": prompt, "max_tokens": max_tokens, 'n': n, 'stop': stop, "logit_bias": bias })
+def textsynth_yes_or_no(prompt):
+    response = requests.post(
+            api_url + "/v1/engines/" + api_engine + "/completions",
+            headers = { "Authorization": "Bearer " + api_key },
+            json = { "prompt": prompt, "max_tokens": 2, "logit_bias": {"46": 50, "9019": 50, "15419": 50, "13": 50}, "top_k": 1 })
     resp = response.json()
     if "text" in resp: 
-        return resp["text"]
+        r = resp['text']
+        print(prompt, r)
+        return r == "Oui"
     else:
         print("ERROR", resp)
         assert False
 
 def yes_or_no(prompt):
-    yesToken = 4374
-    noToken = 2302
-
-    response = requests.post(
-            api_url + "/v1/engines/" + api_engine + "/completions",
-            headers = { "Authorization": "Bearer " + api_key },
-            json = { "prompt": prompt, "max_tokens": 1, "logit_bias": {"2302": 50, "4374": 50}, "top_k": 1 })
+    response = requests.post('https://api.openai.com/v1/completions',
+            headers = { "Authorization": "Bearer " + openai_api_key },
+            json = { "prompt": prompt, "max_tokens": 1, "logit_bias": {"8505": 100, "3919": 100}, "top_p": 1.0, "model": "text-davinci-002" })
     resp = response.json()
-    if "text" in resp: 
-        r = resp['text']
+    print(resp)
+    if "text" in resp['choices'][0]: 
+        r = resp['choices'][0]['text']
         print(prompt, r)
-        return r == "Yes"
+        return r == "yes"
     else:
         print("ERROR", resp)
         assert False
 
-def likely(prompt, affirmation, negation):
-    responseA = requests.post(
-            api_url + "/v1/engines/" + api_engine + "/logprob",
-            headers = { "Authorization": "Bearer " + api_key },
-            json = { "context": prompt, "continuation": affirmation })
-    respA = responseA.json()
-    responseN = requests.post(
-            api_url + "/v1/engines/" + api_engine + "/logprob",
-            headers = { "Authorization": "Bearer " + api_key },
-            json = { "context": prompt, "continuation": negation })
-    respN = responseN.json()
-    print(affirmation, respA['logprob'], negation, respN['logprob'])
-    return respA['logprob'] > respN['logprob']
-
 class TestBot(irc.bot.SingleServerIRCBot):
     def select_word(self):
-        with open("/usr/share/dict/american-english-small") as f:
+        with open("/usr/share/dict/french") as f:
             lines = f.readlines()
             shuffle(lines)
             self.word = lines[0].split("\n")[0]
         print("Chosing word '" + self.word + "'")
-        self.prompt = "The word is " + self.word + ". Q: "
+        self.prompt = "Le mot à trouver est " + self.word + ". Q: "
         if "'" in self.word:
             self.select_word()
 
@@ -105,12 +92,14 @@ class TestBot(irc.bot.SingleServerIRCBot):
         nick = e.source.nick
         c = self.connection
 
+        cmd = unicodedata.normalize('NFC', cmd)
+
         if cmd == "!disconnect":
             self.disconnect()
         elif cmd == "!die":
             self.die()
         elif cmd == "!next":
-            self.say("Word was " + self.word)
+            self.say("Le mot était " + self.word + ".")
             self.select_word()
         elif not " " in cmd:
             if cmd == self.word:
@@ -119,10 +108,10 @@ class TestBot(irc.bot.SingleServerIRCBot):
             else:
                 self.say("Nope.")
         else:
-            if yes_or_no(self.prompt + cmd + ". A:", ):
-                self.say("Yes.")
+            if yes_or_no(self.prompt + cmd + ". R:", ):
+                self.say("Oui.")
             else:
-                self.say("No.")
+                self.say("Non.")
 
 
 bot = TestBot("#semantle", "mymeugeu", "irc.oftc.net")
